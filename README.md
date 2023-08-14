@@ -1,6 +1,6 @@
 # Ciutat tursitificada i segregació residencial. El cas de Palma (Mallorca)
 
-TFM (màster Metroòpolis - Institut Metròpolis) sobre la segregació a la ciutat tursitificada de Palma (Mallorca)
+TFM (màster Metròpolis - Institut Metròpolis) sobre la segregació a la ciutat tursitificada de Palma (Mallorca)
 
 Curs 2022/2023
 
