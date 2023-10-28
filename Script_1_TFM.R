@@ -23,6 +23,7 @@ library(factoextra)
 library(NbClust)
 library(clValid)
 library(igraph)
+library(fitdistrplus)
 
 
 
@@ -30,6 +31,9 @@ library(igraph)
 
 font_add_google("Lato")
 showtext_auto()
+
+
+summary(Dades_Segreg_lm)
 
 
 #######################################################################
@@ -70,7 +74,13 @@ Procedencia_IDH <- Procedencia_wdr %>%
   mutate(BajoIDH=unlist(BajoIDH))
   
 Procedencia_IDH <- as.data.frame(Procedencia_IDH) %>% 
-  mutate(CMUN=str_remove(str_extract(SeccioCensal, "^....."), "^.."))
+  mutate(CMUN=str_remove(str_extract(SeccioCensal, "^....."), "^..")) %>% 
+  mutate(Perc_BajoIDH=(BajoIDH/`Total Población`)*100) %>% 
+  mutate(Perc_AltoIDH=(AltoIDH_mod/`Total Población`)*100) 
+
+
+Perc_Procedenica <- Procedencia_IDH %>% 
+  dplyr::select(SeccioCensal, Perc_BajoIDH, Perc_AltoIDH)
 
 #Dades Turisme
 
@@ -87,6 +97,17 @@ Allotj_CAIB_Data <- TurismoCAIB_allo %>%
 
 Hab_CAIB_Data <- TurismoCAIB_hab %>% 
   mutate(any=format(as.Date(Inici.d.activitat,format="%d/%m/%Y"),"%Y"))
+
+
+
+
+
+
+
+
+
+
+
 
 
 ############################################################################
@@ -110,31 +131,70 @@ head(ImpactProced_esp, n = 5)
 
 
 ImpactProced_data <- as.data.frame(ImpactProced$SeccioCensal) %>% 
-  mutate(SegQuali_proced=cut(scldMean, breaks= c(-10,-1,1.5,200), labels=c("Homogeneïtat", "No significatiu", "Segregació"))) %>% 
+  mutate(SegQuali_proced=cut(scldMean, breaks= c(-10,-1.5,1.5,200), labels=c("Homogeneïtat", "No significatiu", "Segregació inferior"))) %>% 
   mutate(SeccioCensal=rownames(ImpactProced$SeccioCensal)) %>% 
   rename(MD_Proced=scldMean,
          impact_procd=impact)
 
 ImpactProced_data_esp <- as.data.frame(ImpactProced_esp$SeccioCensal) %>% 
-  mutate(SegQuali_prod_esp=cut(scldMean, breaks= c(-10,-1,1.5,200), labels=c("Homogeneïtat", "No significatiu", "Segregació"))) %>% 
+  mutate(SegQuali_prod_esp=cut(scldMean, breaks= c(-10,-1.5,1.5,200), labels=c("Segregació superior", "No significatiu", "Segregació inferior"))) %>% 
   mutate(SeccioCensal=rownames(ImpactProced$SeccioCensal)) %>% 
   rename(MD_Proced=scldMean,
          impact_procd_esp=impact)
 
 ImpactEdu_data <- as.data.frame(ImpactEdu$SeccioCensal) %>% 
-  mutate(SegQuali_Edu=cut(scldMean, breaks= c(-10,-1,1.5,200), labels=c("Homogeneïtat", "No significatiu", "Segregació"))) %>% 
+  mutate(SegQuali_Edu=cut(scldMean, breaks= c(-10,-1.5,1.5,200), labels=c("Segregació superior", "No significatiu", "Segregació inferior"))) %>% 
   mutate(SeccioCensal=rownames(ImpactEdu$SeccioCensal)) %>% 
   rename(MD_Edu=scldMean,
          impact_edu=impact)
 
 table(ImpactEdu_data$SegQuali)
+table(ImpactProced_data$SegQuali)
 
-#Regressio renda
+#segregacio per renda (barris i crisi)
+    #vell
+
+    #nou
+Normalrenda <- fitdist(Renda$MediUC_Renda_2019,"norm")
+summary(Normalrenda)
+
+HighRenda <- 19014.602+(1.28*3806.374)
+LowRenda <- 19014.602-(1.28*3806.374)
+
+
 Renda2019 <- Renda %>% 
   dplyr::select(MediUC_Renda_2019, SeccioCensal) %>% 
   mutate(Quantils=cut(MediUC_Renda_2019, 
                       breaks=c(0, 16450,20650,34650),
-                      labels=c("Renda mediana vulnerable", "No significatiu", "Renda mediana alta")))
+                      labels=c("Renda vulnerable", "No significatiu", "Renda alta"))) %>% 
+  mutate(ISSR=cut(MediUC_Renda_2019,
+                  breaks=c(0, LowRenda,HighRenda,34650),
+                labels=c("Segregació inferior", "No significatiu", "Segregació superior")))
+TaulaNombreBarrisISSR <- Renda2019 %>% 
+  group_by(ISSR) %>% 
+  summarise(n=n(),
+            mitjana=mean(MediUC_Renda_2019),
+            sd=sd(MediUC_Renda_2019))
+
+
+
+        #HISTOGRAMA
+dadesNormalRenda <- data.frame("Normal"=rnorm(339, mean = 19014.602, sd=3806.374), 
+                               "SeccioCensal"=Renda2019$SeccioCensal)
+DadesGrafRenda <- Renda2019 %>% 
+  dplyr::select(MediUC_Renda_2019,ISSR,SeccioCensal) %>% 
+  full_join(dadesNormalRenda) %>% 
+  pivot_longer(cols = c("MediUC_Renda_2019", "Normal"),names_to = "Obervacio", values_to = "Renda")
+
+Graf_Renda_Normal <- ggplot(DadesGrafRenda, aes(x=Renda, colour=Obervacio, fill=Obervacio))+
+  geom_histogram(aes(y=..density..), position="identity", alpha=0.2)+
+  geom_density(alpha=0.4)+
+  scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))
+
+
+#Regressio renda-segregacio
+
 renda_Seg_proc <- full_join(Renda2019, ImpactProced_data, by="SeccioCensal")
 renda_seg_edu <- full_join(Renda2019,ImpactEdu_data, by="SeccioCensal")
 seg_seg_eduIPrc <- full_join(ImpactProced_data,ImpactEdu_data, by="SeccioCensal")
@@ -162,6 +222,39 @@ Grafic_SegEdu_renda <- ggplot(renda_seg_edu, aes(MD_Edu, MediUC_Renda_2019))+
   theme(text = element_text(family="Lato", size=12))
 
 names(renda_seg_edu)
+
+
+#Segregacio Procedencia (NO)
+
+NormalProcd <- fitdist(Perc_Procedenica$Perc_BajoIDH,"norm")
+summary(NormalProcd)
+
+HighProced <- 5.760629+(1.28*5.615124)
+LowProced <- 5.760629-(1.28*5.615124)
+
+Perc_Procedenica <- Perc_Procedenica %>% 
+  mutate(ISSR_proc=cut(Perc_BajoIDH,
+                  breaks=c(0, LowProced,HighProced,34650),
+                  labels=c("Segregació superior", "No significatiu", "Barri vulnerable"))) 
+
+TaulaNombreBarrisISSR_Proced <- Perc_Procedenica %>% 
+  group_by(ISSR_proc) %>% 
+  summarise(n=n(),
+            mitjana=mean(Perc_BajoIDH),
+            sd=sd(Perc_BajoIDH))
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -204,6 +297,9 @@ ImpactEdu_data_res <- ImpactEdu_data %>%
 ImpactProced_data_res <- ImpactProced_data %>% 
   dplyr::select(SeccioCensal, MD_Proced, impact_procd, SegQuali_proced)
 
+Dades_Migrant <- Procedencia_IDH %>% 
+  dplyr::select(SeccioCensal,BajoIDH, AltoIDH_mod)
+
 
 
 Dades_Segreg_lm <- full_join(Turismo_Secc, ImpactProced_data_res) %>% 
@@ -213,6 +309,8 @@ Dades_Segreg_lm <- full_join(Turismo_Secc, ImpactProced_data_res) %>%
   full_join(areaCUSEC) %>% 
   full_join(Places_alt) %>% 
   full_join(Places_baix) %>% 
+  full_join(Dades_Migrant) %>% 
+  full_join(Perc_Procedenica) %>%  
   mutate(densiAirbnb=as.numeric((NumAirbnb/Pobl)*1000)) %>% 
   mutate(log_densiAirbnb=log1p(densiAirbnb)) %>% 
   mutate(log_densiAirbnb=na_if(log_densiAirbnb, "-Inf")) %>% 
@@ -228,6 +326,18 @@ Dades_Segreg_lm <- full_join(Turismo_Secc, ImpactProced_data_res) %>%
   mutate(log_places_alt=log1p(PlacesAlt)) %>% 
   mutate(log_places_alt=na_if(log_places_alt, "-Inf")) %>% 
   mutate(Ciutat=ifelse(str_detect(Dades_Segreg_lm$SeccioCensal, "^07040"),"Palma", "PartForana"))
+
+
+ggplot(Dades_Segreg_lm, aes(x=MediUC_Renda_2019, y=Places_Baix))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(14142.44, 23886.76))
+
+
+ggplot(Dades_Segreg_lm, aes(x=MediUC_Renda_2019, y=densiAirbnb))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(14142.44, 23886.76))
 
 
   #Normalitat dades
@@ -337,18 +447,21 @@ stargazer(lm_MDedu_Airbnb_log, lm_MDedu_Places_air_log,
           type="text")
 
 
+
+
+
+
+
   #definitiu
-stargazer(lm_renda_Airbnb, lm_renda_Places, lm_renda_densiPlaces, lm_renda_Places_air,
-          lm_MDProcd_Airbnb, lm_MDProcd_Places,lm_MDProcd_densiPlaces, lm_MDProcd_Places_air,
-          lm_MDedu_Airbnb, lm_MDedu_Places,lm_MDedu_densiPlaces, lm_MDedu_Places_air,
-          type="text")
-stargazer(lm_renda_Airbnb_log, lm_renda_Places_log,lm_renda_densiPlaces_log, lm_renda_Places_air_log,
-          lm_MDProcd_Airbnb_log, lm_MDProcd_Places_log,lm_MDProcd_densiPlaces_log, lm_MDProcd_Places_air_log,
-          lm_MDedu_Airbnb_log, lm_MDedu_Places_log,lm_MDedu_densiPlaces_log,lm_MDedu_Places_air_log,
-          type="text")
-stargazer(lm_renda_PlacesAB_air, lm_MDProcd_PlacesAB_air,lm_MDedu_PlacesAB_air,
+
+stargazer(lm_renda_Places_air_log,lm_renda_Places_air,
+          lm_MDProcd_Places_air_log,lm_MDProcd_Places_air,
+          lm_MDedu_Places_air_log,lm_MDedu_Places_air,lm_renda_PlacesAB_air, lm_MDProcd_PlacesAB_air,lm_MDedu_PlacesAB_air,
           lm_renda_PlacesAB_air_log, lm_MDProcd_PlacesAB_air_log, lm_MDedu_PlacesAB_air_log,
           type="text")
+
+
+
 
 
 
@@ -386,6 +499,457 @@ plot(lm_MDedu_Places_air)
 plot(lm_MDedu_Places_air_log)
 
 
+
+
+
+
+
+
+
+
+##########################################################################
+#Alt baix
+###########################################################################
+
+    #RegressióAltBaix NO
+Dades_AltBaix_lm <- Dades_Segreg_lm %>% 
+  filter(ISSR!="No significatiu") %>% 
+  mutate(RendaAlta=ifelse(ISSR=="Segregació superior", 1, 0))
+
+Logit_Renda <- glm(RendaAlta ~ NumAirbnb+Places+AREA+Pobl+Ciutat+AltoIDH_mod,
+             family = binomial(link="logit"),
+             data = Dades_AltBaix_lm)
+stargazer(Logit_Renda, type="text")
+
+Logit_Renda_AltBaix <- glm(RendaAlta ~ NumAirbnb+PlacesAlt+Places_Baix+AREA+Pobl+Ciutat+AltoIDH_mod,
+                   family = binomial(link="logit"),
+                   data = Dades_AltBaix_lm)
+stargazer(Logit_Renda_AltBaix, type="text")
+
+
+Dades_Alt_lm <- Dades_Segreg_lm %>% 
+  filter(ISSR!="Segregació superior")
+
+lm_renda_Airbnb_alt <- lm(data=Dades_Alt_lm, MediUC_Renda_2019~NumAirbnb+AREA+Pobl+Ciutat)
+lm_renda_Places_alt <- lm(data=Dades_Alt_lm, MediUC_Renda_2019~Places+AREA+Pobl+Ciutat)
+lm_renda_Places_air_alt <- lm(data=Dades_Alt_lm, MediUC_Renda_2019~NumAirbnb+Places+AREA+Pobl+Ciutat)
+
+stargazer(lm_renda_Airbnb_alt,lm_renda_Places_alt,lm_renda_Places_air_alt, type="text")
+
+
+Dades_Baix_lm <- Dades_Segreg_lm %>% 
+  filter(ISSR!="Segregació inferior")
+
+lm_renda_Airbnb_baix <- lm(data=Dades_Baix_lm, MediUC_Renda_2019~NumAirbnb+AREA+Pobl+Ciutat)
+lm_renda_Places_baix <- lm(data=Dades_Baix_lm, MediUC_Renda_2019~Places+AREA+Pobl+Ciutat)
+lm_renda_Places_air_baix <- lm(data=Dades_Baix_lm, MediUC_Renda_2019~NumAirbnb+Places+AREA+Pobl+Ciutat)
+
+stargazer(lm_renda_Airbnb_baix,lm_renda_Places_baix,lm_renda_Places_air_baix, type="text")
+
+
+Dades_PlacesAlt_lm <- Dades_Segreg_lm %>% 
+  filter(PlacesAlt!=0)
+
+lm_PlacesAlt_renda <- lm(data=Dades_Baix_lm,PlacesAlt ~MediUC_Renda_2019+AREA+Pobl+Ciutat)
+stargazer(lm_PlacesAlt_renda, type="text")
+
+Dades_PlacesBaix_lm <- Dades_Segreg_lm %>% 
+  filter(Places_Baix!=0)
+
+lm_PlacesBaix_renda <- lm(data=Dades_Baix_lm,Places_Baix ~MediUC_Renda_2019+AREA+Pobl+Ciutat)
+stargazer(lm_PlacesBaix_renda, type="text")
+
+
+
+
+
+
+
+
+
+
+
+##########################
+#Diferencia Mitjana de places alt i baix
+##########################
+
+
+#taula bàsica de mitjanes i sd
+
+mitjanes_Baix <- Dades_Segreg_lm %>% 
+  filter(Places_Baix!=0)
+mitjanes_Alt <- Dades_Segreg_lm %>% 
+  filter(PlacesAlt!=0)
+summary(mitjanes_Baix$Places_Baix)
+summary(mitjanes_Alt$PlacesAlt)
+
+
+Dades_PlacesBaix_taula <- Dades_Segreg_lm %>% 
+  pivot_longer(cols=c("Places_Baix", "PlacesAlt"),
+               names_to = "CategoriaPlaces",
+               values_to="Places_Quanti_categ") %>% 
+  filter(Places_Quanti_categ>250) %>%
+  group_by(CategoriaPlaces) %>% 
+  summarize(MitjanaRenda=mean(MediUC_Renda_2019, na.rm=TRUE),
+            sdRenda=sd(MediUC_Renda_2019, na.rm=TRUE),
+            MitjanaEdu=mean(MD_Edu, na.rm=TRUE),
+            sdEdu=sd(MD_Edu,  na.rm=TRUE),
+            MitjanaProced=mean(MD_Proced, na.rm=TRUE),
+            sdProced=sd(MD_Proced, na.rm=TRUE))
+
+
+#Gràfics
+
+Dades_PlacesBaix_Grph <- Dades_PlacesBaix_taula %>% 
+  mutate(CategoriaPlaces=ifelse(CategoriaPlaces=="Places_Baix", "Baixa categoria", "Alta categoria"))
+
+
+ggplot(Dades_PlacesBaix_Grph, aes(x=CategoriaPlaces, y=MitjanaRenda))+
+  geom_point()+
+  geom_errorbar(aes(ymin=MitjanaRenda-sdRenda, 
+                    ymax=MitjanaRenda+sdRenda))+
+  labs(x="Categoria de les places",
+       y="Mediana de renda (2019)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+ggplot(Dades_PlacesBaix_Grph, aes(x=CategoriaPlaces, y=MitjanaEdu))+
+  geom_point()+
+  geom_errorbar(aes(ymin=MitjanaEdu-sdEdu, 
+                    ymax=MitjanaEdu+sdEdu))+
+  labs(x="Categoria de les places",
+       y="Diferència mitjana segons nivell d'educació (ID)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+ggplot(Dades_PlacesBaix_Grph, aes(x=CategoriaPlaces, y=MitjanaProced))+
+  geom_point()+
+  geom_errorbar(aes(ymin=MitjanaProced-sdProced, 
+                    ymax=MitjanaProced+sdProced))+
+  labs(x="Categoria de les places",
+       y="Diferència mitjana segons país de naixament (ID)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+
+
+  #t-test
+Dades_PlacesBaix_test <- Dades_Segreg_lm %>% 
+  pivot_longer(cols=c("Places_Baix", "PlacesAlt"),
+               names_to = "CategoriaPlaces",
+               values_to="Places_Quanti_categ") %>% 
+  filter(Places_Quanti_categ>250) %>% 
+  mutate(CategoriaPlaces=ifelse(CategoriaPlaces=="Places_Baix", "Baixa categoria", "Alta categoria"))
+
+
+t.test(MediUC_Renda_2019~CategoriaPlaces,data=Dades_PlacesBaix_test)
+t.test(MD_Edu~CategoriaPlaces,data=Dades_PlacesBaix_test)
+t.test(MD_Proced~CategoriaPlaces,data=Dades_PlacesBaix_test)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################
+#Index de tursitificació
+##########################################
+
+#Dades
+
+names(Dades_Segreg_lm)
+Dades_Segreg_lm <- Dades_Segreg_lm %>% 
+  mutate(AreaSegregacio_Quali=ifelse(SegQuali_Edu=="Segregació superior"|
+                                       ISSR=="Segregació superior", "Segregació superior",
+                                     ifelse(SegQuali_Edu=="Segregació inferior"|
+                                              ISSR=="Segregació inferior"|
+                                              SegQuali_proced =="Segregació inferior", "Segregació inferior",
+                                            "No significatiu"))) %>% 
+  mutate(RestaRendaAlta=ifelse(AreaSegregacio_Quali!="Segregació superior"&
+                                 Quantils=="Renda alta", "Renda alta", 
+                               ifelse(AreaSegregacio_Quali!="Segregació inferior"&
+                                        Quantils=="Renda vulnerable", "Renda vulnerable", "kk")))
+Dades_Segreg_FINAL <- Dades_Segreg_lm %>% 
+  dplyr::select(SeccioCensal, AreaSegregacio_Quali, densiAirbnb, Places, Pobl,RestaRendaAlta)
+
+
+Dades_PlacesNou <- read.xlsx("Dades/Turisme/AllotjamentsNous/AllotjamentsNous.xlsx", sheetName = "AllotjamentsNous") %>% 
+  mutate(SeccioCensal=CUSEC) %>% 
+  dplyr::select(SeccioCensal, PlacesNou)
+
+Dades_PlacesVellBaix <- read.xlsx("Dades/Turisme/AllotjamentVells1980/AllotjamentVells1980_baixa.xlsx", sheetName = "AllotjamentVells1980_baixa") %>% 
+  mutate(SeccioCensal=CUSEC) %>% 
+  dplyr::select(SeccioCensal, PlacesBaix1980)
+
+
+Dades_IndexTurisme <- Dades_Cluster2 %>% 
+  full_join(Dades_PlacesNou) %>% 
+  full_join(Dades_PlacesVellBaix) %>% 
+  full_join(Dades_Segreg_FINAL) %>% 
+  mutate(PlacesMadures_perc =(PlacesBaix1980/Places)) %>% 
+  mutate(PlacesNous_perc=(PlacesNou/Places)) %>% 
+  mutate(PlacesMadures_perc=ifelse(is.na(PlacesMadures_perc), 0, PlacesMadures_perc)) %>% 
+  mutate(PlacesNous_perc=ifelse(is.na(PlacesNous_perc), 0, PlacesNous_perc)) %>% 
+  mutate(densiPlacesAltes=(PlacesAlt/Pobl)*1000) %>% 
+  mutate(densiPlacesBaixes=(Places_Baix/Pobl)*1000) %>% 
+  mutate(densiPlacesAltes=ifelse(is.na(densiPlacesAltes), 0, densiPlacesAltes)) %>%
+  mutate(densiPlacesBaixes=ifelse(is.na(densiPlacesBaixes), 0, densiPlacesBaixes)) %>% 
+  mutate(densiPlacesAltes = (densiPlacesAltes - min(densiPlacesAltes)) / (max(densiPlacesAltes) - min(densiPlacesAltes))) %>%
+  mutate(densiPlacesBaixes =(densiPlacesBaixes - min(densiPlacesBaixes)) / (max(densiPlacesBaixes) - min(densiPlacesBaixes))) %>%
+  mutate(densiAirbnb = (densiAirbnb - min(densiAirbnb)) / (max(densiAirbnb) - min(densiAirbnb))) %>%
+  mutate(PlacesNou = (PlacesNou - min(PlacesNou)) / (max(PlacesNou) - min(PlacesNou))) %>%
+  mutate(densiPlaces = (densiPlaces - min(densiPlaces)) / (max(densiPlaces) - min(densiPlaces))) %>%
+  dplyr::select(SeccioCensal, densiPlacesAltes, densiAirbnb, PercNoPrin, PlacesNous_perc,
+                densiPlacesBaixes,PlacesMadures_perc, PlacesNou, densiPlaces)
+
+
+#reestructuracio
+Index_Reestructuracio <- Dades_IndexTurisme %>% 
+  dplyr::select(SeccioCensal, densiAirbnb, densiPlacesAltes, PercNoPrin)
+rownames(Index_Reestructuracio) <- Index_Reestructuracio$SeccioCensal
+Index_Reestructuracio <- Index_Reestructuracio %>% 
+  dplyr::select(-SeccioCensal)
+
+weights_Rt <- c(0.20, 0.50, 0.30)
+
+Index_Reestructuracio$weighted_index <- rowSums(Index_Reestructuracio * weights_Rt)
+
+summary(Index_Reestructuracio$weighted_index)
+
+Index_Reestructuracio <- Index_Reestructuracio %>% 
+  mutate(SeccioCensal=rownames(Index_Reestructuracio))
+
+summary(Index_Reestructuracio)
+
+Index_Reestructuracio2 <- Index_Reestructuracio %>%
+  mutate(IndexReestructuracio=weighted_index) %>% 
+  dplyr::select(IndexReestructuracio, SeccioCensal)
+
+
+#madur
+Index_madur <- Dades_IndexTurisme %>% 
+  dplyr::select(SeccioCensal, densiPlaces, densiPlacesBaixes, PlacesMadures_perc )
+rownames(Index_madur) <- Index_madur$SeccioCensal
+Index_madur <- Index_madur %>% 
+  dplyr::select(-SeccioCensal)
+
+weights_madur <- c(0.1, 0.6, 0.35)
+
+Index_madur$weighted_index <- rowSums(Index_madur * weights_madur)
+
+summary(Index_madur$weighted_index)
+
+Index_madur <- Index_madur %>% 
+  mutate(SeccioCensal=rownames(Index_madur))
+
+Index_madur2 <- Index_madur %>%
+  mutate(IndexMadur=weighted_index) %>% 
+  dplyr::select(IndexMadur, SeccioCensal)
+
+
+#t-test
+quantile(Index_madur2$IndexMadur, probs=c(.1,.9))
+quantile(Index_Reestructuracio2$IndexReestructuracio, probs=c(.1,.9))
+
+IndexosTurisme <- full_join(Index_madur2, Index_Reestructuracio2, 
+                            by="SeccioCensal") %>%
+  mutate(Index=ifelse(IndexMadur>=0.26&IndexReestructuracio>=IndexMadur, "Àrea de reestructuració",
+                      ifelse(IndexReestructuracio>=0.26&IndexReestructuracio>=IndexMadur, "Àrea de reestructuració",
+                             ifelse(IndexMadur>=0.14&IndexReestructuracio<IndexMadur, 
+                                    "Àrea madura", "kk")))) %>% 
+  full_join(Dades_Segreg_lm) %>% 
+  filter(Index!="kk")
+
+IndexosTurisme_Mapa <- full_join(Index_madur2, Index_Reestructuracio2, 
+                            by="SeccioCensal") %>%
+  mutate(Index=ifelse(IndexMadur>=0.26&IndexReestructuracio>=IndexMadur, "Àrea de reestructuració",
+                      ifelse(IndexReestructuracio>=0.26&IndexReestructuracio>=IndexMadur, "Àrea de reestructuració",
+                             ifelse(IndexMadur>=0.14&IndexReestructuracio<IndexMadur, 
+                                    "Àrea madura", "kk"))))
+
+
+t.test(MediUC_Renda_2019~Index,data=IndexosTurisme)
+t.test(MD_Edu~Index,data=IndexosTurisme)
+t.test(MD_Proced~Index,data=IndexosTurisme)
+
+
+
+#Grafics dm
+
+
+IndexosTurisme_group <- IndexosTurisme %>% 
+  group_by(Index) %>% 
+  summarize(MitjanaRenda=mean(MediUC_Renda_2019, na.rm=TRUE),
+            sdRenda=sd(MediUC_Renda_2019, na.rm=TRUE),
+            MitjanaEdu=mean(MD_Edu, na.rm=TRUE),
+            sdEdu=sd(MD_Edu,  na.rm=TRUE),
+            MitjanaProced=mean(MD_Proced, na.rm=TRUE),
+            sdProced=sd(MD_Proced, na.rm=TRUE))
+
+
+ggplot(IndexosTurisme_group, aes(x=Index, y=MitjanaRenda))+
+  geom_point()+
+  geom_errorbar(aes(ymin=MitjanaRenda-sdRenda, 
+                    ymax=MitjanaRenda+sdRenda))+
+  labs(x="Tipologia de model turístic",
+       y="Mediana de renda (2019)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+ggplot(IndexosTurisme_group, aes(x=Index, y=MitjanaEdu))+
+  geom_point()+
+  geom_errorbar(aes(ymin=MitjanaEdu-sdEdu, 
+                    ymax=MitjanaEdu+sdEdu))+
+  labs(x="Tipologia de model turístic",
+       y="Diferència mitjana segons nivell d'educació (ID)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+ggplot(IndexosTurisme_group, aes(x=Index, y=MitjanaProced))+
+  geom_point()+
+  geom_errorbar(aes(ymin=MitjanaProced-sdProced, 
+                    ymax=MitjanaProced+sdProced))+
+  labs(x="Tipologia de model turístic",
+       y="Diferència mitjana segons país de naixament (ID)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12)) 
+  
+  
+  
+  
+#Grafics regressions
+
+
+IndexosTurisme3 <- full_join(Index_madur2, Index_Reestructuracio2, 
+                             by="SeccioCensal") %>%
+  mutate(Index=ifelse(IndexMadur>=0.26&IndexReestructuracio>=IndexMadur, "Àrea de reestructuració",
+                      ifelse(IndexReestructuracio>=0.26&IndexReestructuracio>=IndexMadur, "Àrea de reestructuració",
+                             ifelse(IndexMadur>=0.14&IndexReestructuracio<IndexMadur, 
+                                    "Àrea madura", "kk")))) %>% 
+  full_join(Dades_Segreg_lm) %>% 
+  pivot_longer(names_to = "Tipologia_índex",
+               values_to = "Coeficient_índex",
+               cols = c("IndexMadur", "IndexReestructuracio"))
+
+
+GPH_RendaIndex <- ggplot(IndexosTurisme3, aes(x=MediUC_Renda_2019, y=Coeficient_índex, colour=Tipologia_índex))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(14142.44, 23886.76), linetype="dashed")+
+  geom_vline(xintercept = c(18550, 19015), linetype="dotted", color="red")+
+  labs(color=NULL,
+       y="Coeficient dels índexs d'intensitat turís.",
+       x="Mediana de renda per unitat de consum")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+  
+GPH_EduIndex <- ggplot(IndexosTurisme3, aes(x=MD_Edu, y=Coeficient_índex, colour=Tipologia_índex))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(-1.5, 1.5), linetype="dashed")+
+  labs(color=NULL,
+       y="Coeficient dels índexs d'intensitat turís.",
+       x="Diferències mitjanes en segregació (Nivell educatiu)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+GPH_ProcedIndex <- ggplot(IndexosTurisme3, aes(x=MD_Proced, y=Coeficient_índex, colour=Tipologia_índex))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(-1.5, 1.5), linetype="dashed")+
+  labs(color=NULL,
+       y="Coeficient dels índexs d'intensitat turís.",
+       x="Diferències mitjanes en segregació (País naix.)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+
+
+
+
+
+
+#Grafics filtrats
+IndexosTurisme4 <- full_join(Index_madur2, Index_Reestructuracio2, 
+                             by="SeccioCensal") %>%
+  mutate(Index=ifelse(IndexMadur>=0.26&IndexReestructuracio>=IndexMadur, "Àrea de reestructuració",
+                      ifelse(IndexReestructuracio>=0.26&IndexReestructuracio>=IndexMadur, "Àrea de reestructuració",
+                             ifelse(IndexMadur>=0.14&IndexReestructuracio<IndexMadur, 
+                                    "Àrea madura", "kk")))) %>% 
+  full_join(Dades_Segreg_lm) 
+
+
+
+GPH_EduIRT_F <- ggplot(filter(IndexosTurisme4, Index=="Àrea de reestructuració"), aes(x=MD_Edu, y=IndexReestructuracio))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(-1.5, 1.5), linetype="dashed")+
+  labs(color=NULL,
+       y="Índex de reestructuració turística",
+       x="Diferències mitjanes en segregació (Nivell educatiu)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+GPH_RendaIRT_F <- ggplot(filter(IndexosTurisme4, Index=="Àrea de reestructuració"), aes(x=MediUC_Renda_2019, y=IndexReestructuracio))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(14142.44, 23886.76), linetype="dashed")+
+  geom_vline(xintercept = c(18550, 19015), linetype="dotted", color="red")+
+  labs(color=NULL,
+       y="Índex de reestructuració turística",
+       x="Mediana de renda per unitat de consum")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+
+
+
+GPH_EduITM_F <- ggplot(filter(IndexosTurisme4, Index=="Àrea madura"), aes(x=MD_Edu, y=IndexMadur))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(-1.5, 1.5), linetype="dashed")+
+  labs(color=NULL,
+       y="Índex de turisme madur",
+       x="Diferències mitjanes en segregació (Nivell educatiu)")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+GPH_RendaITM_F <- ggplot(filter(IndexosTurisme4, Index=="Àrea madura"), aes(x=MediUC_Renda_2019, y=IndexMadur))+
+  geom_point()+
+  geom_smooth()+
+  geom_vline(xintercept = c(14142.44, 23886.76), linetype="dashed")+
+  geom_vline(xintercept = c(18550, 19015), linetype="dotted", color="red")+
+  labs(color=NULL,
+       y="Índex de turisme madur",
+       x="Mediana de renda per unitat de consum")+
+  theme_tufte()+
+  theme(text = element_text(family="Lato", size=12))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ###########################################################################
 #Longitudinals 
 ###########################################################################
@@ -398,7 +962,7 @@ plot(lm_MDedu_Places_air_log)
 ImapctProcd_2019 <- ImpactProced
 
 Proced_data__2019_SC <- as.data.frame(ImapctProcd_2019$SeccioCensal) %>% 
-  mutate(SegQuali_procd=cut(scldMean, breaks= c(-10,-1,1.5,200), labels=c("Homogeneïtat", "No significatiu", "Segregació"))) %>% 
+  mutate(SegQuali_procd=cut(scldMean, breaks= c(-10,-1.5,1.5,200), labels=c("Homogeneïtat", "No significatiu", "Segregació"))) %>% 
   mutate(SeccioCensal=rownames(ImpactProced$SeccioCensal)) %>% 
   rename(MD_Proced=scldMean,
          impact_procd=impact) %>% 
@@ -667,7 +1231,6 @@ Grafic_MUN_Long <- ggplot(CMUN_long_Seg_MUN, aes(Any, Segregacio_MD, colour=Muni
   geom_point()+
   geom_line()+
   scale_color_brewer(palette="Paired")+
-  geom_hline(yintercept = c(-1), colour="grey", linetype="dashed")+
   annotate("text", x=2021, y=-1.1, label="Homogeneïtat", size=2.5, colour="grey")+
   labs(colour=NULL,
        y="Diferències mitjanes en segregació (ID)")+
@@ -752,6 +1315,13 @@ ggplot(Quali_long_Places_SC, aes(Any, Segregacio_MD, colour=QualiPlaces))+
 
 
 
+
+
+
+
+
+
+
 ############################################################################
 ############################################################################
 #CLUSTER
@@ -764,10 +1334,10 @@ ggplot(Quali_long_Places_SC, aes(Any, Segregacio_MD, colour=QualiPlaces))+
 names(Dades_Segreg_lm)
 
 Dades_Cluster <- Dades_Segreg_lm %>% 
-  dplyr::select(SeccioCensal, MD_Edu, NumAirbnb, MediUC_Renda_2019,densiPlaces)
+  dplyr::select(SeccioCensal, MD_Edu, NumAirbnb, MediUC_Renda_2019,densiPlaces, Perc_BajoIDH)
 
 Dades_Cluster2 <- Dades_Segreg_lm %>% 
-  dplyr::select(SeccioCensal, MD_Edu, NumAirbnb, MediUC_Renda_2019,densiPlaces)
+  dplyr::select(SeccioCensal, MD_Edu, NumAirbnb, MediUC_Renda_2019,densiPlaces, Perc_BajoIDH)
 
 
 Dades_Cl_Edu2011 <- read.xlsx("Dades/NivelEstudios/NivelEstudios_2011.xls", 
@@ -838,19 +1408,10 @@ get_clust_tendency(cities_sc, n= nrow(cities_sc)-1)
 
 #Realitzacio cluster
 
-  #jerarquic ######NOOOOOOOO
-nb <- NbClust(cities_sc, distance="euclidean", min.nc=2,
-              max.nc=10, method="average")
-
-cities_hc_centroid <- hclust (dist_eucl, method="average")
-cutree_hc_centroid_9 <- cutree(cities_hc_centroid, k=2)
-table(cutree_hc_centroid_9)
-
-
 
   #Kmean (SÏ)
 nb <- NbClust(cities_sc, distance="euclidean", min.nc=2,
-              max.nc=10, method="kmeans")
+              max.nc=10, method="complete")
 
 set.seed(123)
 kmeans_cities3 <- kmeans(cities_sc, 3, nstart = 25)
@@ -874,9 +1435,14 @@ names(cluster_original)
 #comprovacio
 
 library(clValid)
-ag_km_di <- c("agnes", "kmeans", "diana")
-cvalid <- clValid(cities_sc, nClust=2, clMethods = ag_km_di, method= "average", metric="euclidean", validation = "internal")
+ag_km_di <- c( "kmeans")
+cvalid <- clValid(cities_sc, nClust=3, clMethods = ag_km_di, method= "average", metric="euclidean", validation = "internal")
 summary(cvalid)
+
+cities_agnes_cp <- eclust(cities_sc, FUNcluster="agnes", k=NULL, hc_metric= "euclidean", hc_method= "average")
+fviz_dend(cities_agnes_cp, color_labels_by_k = TRUE, rect=TRUE)
+
+
 
 #taukes
 taula_original <- cluster_original %>% 
@@ -909,14 +1475,31 @@ Taula_agregat_cluster3 <- aggregate(Cl_dta, by=list(cluster=kmeans_cities3$clust
 
 
 
+
+
+
+
+
+
+
+
+
 ############################################################################
 #Exportar cosetes
 library("writexl")
 write_xlsx(TurismoCAIB_hab,"Cartografia/_Dades/Turisme_hab.xlsx")
-write_xlsx(ImpactProced_data,"Cartografia/_Dades/ImpacteProcd_Data.xlsx", )
-write_xlsx(ImpactEdu_data,"Cartografia/_Dades/ImpacteEdu_Data.xlsx", )
-write_xlsx(ImpactProced_data_esp,"Cartografia/_Dades/ImpacteProcd_ESP_Data.xlsx", )
-write_xlsx(Renda2019,"Cartografia/_Dades/Renda2019.xlsx", )
+write_xlsx(ImpactProced_data,"Cartografia/_Dades/ImpacteProcd_Data_2.xlsx", )
+write_xlsx(ImpactEdu_data,"Cartografia/_Dades/ImpacteEdu_Data_2.xlsx", )
+write_xlsx(ImpactProced_data_esp,"Cartografia/_Dades/ImpacteProcd_ESP_Data_2.xlsx", )
+write_xlsx(Renda2019,"Cartografia/_Dades/Renda2019_Resta.xlsx", )
+write_xlsx(Dades_Segreg_FINAL,"Cartografia/_Dades/SegFinal_Q_Resta.xlsx", )
+
+write_xlsx(IndexosTurisme_Mapa,"Cartografia/_Dades/IndexosTurisme.xlsx", )
+write_xlsx(IndexosTurisme_Mapa2,"Cartografia/_Dades/IndexosTurisme_C.xlsx", )
+write_xlsx(Index_Reestructuracio2,"Cartografia/_Dades/Index_Reestructuracio2.xlsx", )
+
+
+
 
 cluster_original <- cluster_original %>% 
   mutate(SeccioCensal=rownames(cluster_original))
@@ -938,21 +1521,20 @@ ggsave(grafic_eucld, filename = "Imatges/GraficsSegregacio/clusterplot")
 
 
 
-stargazer(renda_Seg_edu_lm,renda_Seg_proc_lm, type="html", out = "Taules/RegressionsIndicadors.html")
+ggsave(GPH_RendaIndex, filename = "Imatges/GraficsSegregacio/GPH_RendaIndex.png")
+ggsave(GPH_EduIndex, filename = "Imatges/GraficsSegregacio/GPH_EduIndex.png")
+ggsave(GPH_ProcedIndex, filename = "Imatges/GraficsSegregacio/GPH_ProcedIndex.png")
 
-stargazer(lm_renda_Airbnb, lm_renda_Places, lm_renda_Places_air,lm_renda_densiPlaces,
-          lm_MDProcd_Airbnb, lm_MDProcd_Places,lm_MDProcd_Places_air,lm_MDProcd_densiPlaces,
-          lm_MDedu_Airbnb, lm_MDedu_Places,lm_MDedu_Places_air,lm_MDedu_densiPlaces,
-          type="html", out = "Taules/RegressionsSegregacioTurisme.html")
-
-
-stargazer(lm_renda_Airbnb_log, lm_renda_Places_log,lm_renda_densiPlaces_log, lm_renda_Places_air_log,
-          lm_MDProcd_Airbnb_log, lm_MDProcd_Places_log,lm_MDProcd_densiPlaces_log, lm_MDProcd_Places_air_log,
-          lm_MDedu_Airbnb_log, lm_MDedu_Places_log,lm_MDedu_densiPlaces_log,lm_MDedu_Places_air_log,
-          type="html", out = "Taules/RegressionsSegregacioTurisme_log.html")
-
-stargazer(lm_renda_PlacesAB_air, lm_MDProcd_PlacesAB_air,lm_MDedu_PlacesAB_air,
-          lm_renda_PlacesAB_air_log, lm_MDProcd_PlacesAB_air_log, lm_MDedu_PlacesAB_air_log,
-          type="html", out = "Taules/RegressionsSegregacioTurisme_ALTBAIX.html")
+ggsave(GPH_EduIRT_F, filename = "Imatges/GraficsSegregacio/GPH_EduIRT_F.png")
+ggsave(GPH_RendaIRT_F, filename = "Imatges/GraficsSegregacio/GPH_RendaIRT_F.png")
+ggsave(GPH_EduITM_F, filename = "Imatges/GraficsSegregacio/GPH_EduITM_F.png")
+ggsave(GPH_RendaITM_F, filename = "Imatges/GraficsSegregacio/GPH_RendaITM_F.png")
 
 
+stargazer(lm_renda_Places_air_log,lm_renda_Places_air,
+          lm_MDProcd_Places_air_log,lm_MDProcd_Places_air,
+          lm_MDedu_Places_air_log,lm_MDedu_Places_air,
+          lm_renda_PlacesAB_air, lm_renda_PlacesAB_air_log, 
+          lm_MDedu_PlacesAB_air, lm_MDedu_PlacesAB_air_log,
+          lm_MDProcd_PlacesAB_air,lm_MDProcd_PlacesAB_air_log,
+          type="html", out = "Taules/RegressionsFINAL.html")
